@@ -10,8 +10,15 @@ import tensorflow as tf
 
 # State is determined by a 4x4x16 tensor. A -1 in all channels of
 # a cell means the cell is empty.
-FALSE_COL = tf.reshape(tf.constant([False] * 4 * 16), (1, 4, 1, 16))
-FALSE_ROW = tf.reshape(tf.constant([False] * 4 * 16), (1, 1, 4, 16))
+
+FALSE_COL = tf.reshape(tf.constant([False]*4), (1, 4, 1))
+
+EMPTY_CELL = tf.constant([1.] + [0.]*16)
+EMPTY_CELL = tf.reshape(EMPTY_CELL, (1, 1, 1, 17))
+EMPTY_COL = tf.repeat(EMPTY_CELL, [4], axis=1)
+EMPTY_ROW = tf.repeat(EMPTY_CELL, [4], axis=2)
+
+EMPTY_BOARD = tf.repeat(EMPTY_COL, [4], axis=2)
 
 
 def convert_board_to_tensor(x):
@@ -38,36 +45,77 @@ def convert_tensor_to_board(x):
     return x
 
 
-def rotate_right(x):
-    return tf.concat([x[:, :, 3:4, :], x[:, :, :3, :]], axis=2)
+def shift_right(x):
+    return tf.concat([EMPTY_COL, x[:, :, :3, :]], axis=2)
 
 
-def slide_right(x):
+def shift_left(x):
+    return tf.concat([x[:, :, 1:, :], EMPTY_COL], axis=2)
+
+
+def _slide_right(x):
     """
     Args:
       x (tf.Tensor): NHWC
     """
-    # cond = tf.math.equal(x[:, :, 1:, :], -1)
     cond = tf.argmax(x[:, :, 1:, :], axis=3) == 0
-    print('cond shape', cond.shape)
-    FALSE_COL = tf.reshape(tf.constant([False] * 4), (1, 4, 1))
-    print('false shape', FALSE_COL.shape)
-    cond = tf.concat([FALSE_COL, cond], axis=2)
-    print('cond shape', cond.shape)
-    print(cond)
+    cond = tf.concat([cond[:, :, 0:1], cond], axis=2)
+
+    for _ in range(3):
+        cond = tf.math.logical_or(cond, tf.concat([cond[:, :, 1:], FALSE_COL], 2))
 
     cond = tf.expand_dims(cond, 3)
     cond = tf.repeat(cond, [17], axis=3)
-    # print('rotate', rotate_right(x))
-    # print('cond', cond)
-    x = tf.where(cond, x, rotate_right(x))
+
+    sr = shift_right(x)
+
+    x = tf.where(cond, sr, x)
+    return x
+
+
+def slide_right(x):
+    for _ in range(3):
+        x = _slide_right(x)
+    return x
+
+
+def merge_right(x):
+    sr = shift_right(x)
+    sl = shift_left(x)
+
+    x = tf.argmax(x, axis=3)
+    sr_max = tf.argmax(sr, axis=3)
+    sl_max = tf.argmax(sl, axis=3)
+
+    inc_cond = tf.math.logical_and(x != 0, x == sr_max)
+    zero_cond = tf.math.logical_and(x != 0, x == sl_max)
+
+    all_equal = tf.reduce_all(inc_cond[:, :, 1:], axis=2)
+
+    x = tf.where(inc_cond, x + 1, x)
+    x = tf.where(zero_cond, 0, x)
+
+    false_col = tf.reshape(tf.constant([False] * 4), (1, 4, 1))
+    empty_col = tf.reshape(tf.constant([0] * 4, dtype=tf.int64), (1, 4, 1))
+
+    sll = tf.concat([x[:, :, 1:], empty_col], axis=2)
+
+    all_equal = tf.expand_dims(all_equal, 2)
+
+    merge_2_cond = tf.concat([false_col, false_col, all_equal, false_col], axis=2)
+
+    x = tf.where(merge_2_cond, sll, x)
+
+    x = tf.one_hot(tf.cast(x, tf.int32), 17)
+
+    x = _slide_right(x)
     return x
 
 
 if __name__ == '__main__':
     board = tf.constant([
-        [0., 0., 0., 0.],
-        [2., 0., 0., 0.],
+        [4., 4., 4., 4.],
+        [2., 2., 4., 4.],
         [0., 4., 0., 2.],
         [2., 2., 0., 0.],
     ])
@@ -76,6 +124,7 @@ if __name__ == '__main__':
     x = tf.expand_dims(x, 0)
 
     x = slide_right(x)
+    print(convert_tensor_to_board(x[0]))
+    x = merge_right(x)
 
-    b = convert_tensor_to_board(x[0])
-    print(b)
+    print(convert_tensor_to_board(x[0]))
