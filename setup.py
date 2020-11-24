@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 VERSION = '0.1.0'
 setup(
-    name='tiles',
+    name='r2048-rl',
     version=VERSION,
     packages=find_packages(),
     install_requires=[
@@ -13,7 +13,8 @@ setup(
         'dm-sonnet',
         'fire',
         'tqdm',
-        'typeguard'
+        'typeguard',
+        # 'git+https://github.com/DrKwint/r2048.git@6fcd24f91959da93dcb8b11055c35653f2fa947c',
     ],
     extras_require={
         'tests': [
